@@ -39,6 +39,7 @@ test_name = ""
 data = ""
 graph_x = 'Time'  # Default X-axis
 graph_y = 'Thrust'  # Default Y-axis
+calibration_factor = -7050.0 # Default value
 data_map = { # all data for a run
     'Time': [],
     'PWM': [],
@@ -51,6 +52,7 @@ data_map = { # all data for a run
 # Configuration file handling
 TEST_CONFIG_FILE = "config_test.ini"
 DATA_CONFIG_FILE = "config_data.ini"
+CALIBRATION_CONFIG_FILE = "config_calibration.ini"
 def load_test_config():
     config = configparser.ConfigParser()
     if os.path.exists(TEST_CONFIG_FILE):
@@ -84,6 +86,19 @@ def load_data_config():
         with open(DATA_CONFIG_FILE, 'w') as configfile:
             config.write(configfile)
         return config
+def load_calibration_config():
+    config = configparser.ConfigParser()
+    if os.path.exists(CALIBRATION_CONFIG_FILE):
+        config.read(CALIBRATION_CONFIG_FILE)
+        return config
+    else:
+        # Create default config
+        config['LOADCELL'] = {
+            'calibration_factor': str(calibration_factor)
+        }
+        with open(CALIBRATION_CONFIG_FILE, 'w') as configfile:
+            config.write(configfile)
+        return config
 def save_test_config():
     global settings
     config = configparser.ConfigParser()
@@ -108,9 +123,20 @@ def save_data_config():
     with open(DATA_CONFIG_FILE, 'w') as configfile:
         config.write(configfile)
 
+def save_calibration_config():
+    global calibration_factor
+    config = configparser.ConfigParser()
+    config['LOADCELL'] = {
+        'calibration_factor': str(calibration_factor)
+    }
+    with open(CALIBRATION_CONFIG_FILE, 'w') as configfile:
+        config.write(configfile)
+
 # Load configuration at startup
 config_test = load_test_config()
 config_data = load_data_config()
+config_calibration = load_calibration_config()
+calibration_factor = config_calibration['LOADCELL'].getfloat('calibration_factor')
 graph_x = config_data['GRAPH'].get('x_axis', 'Time')
 graph_y = config_data['GRAPH'].get('y_axis', 'Thrust')
 autolog = config_data['GENERAL'].getboolean('autolog', True)
@@ -152,12 +178,27 @@ def serial_read_start():
         serial_thread.start()
 
 def SerialRefresh():
-    global Serial, data, serial_thread_running, data_map
+    global Serial, data, serial_thread_running, data_map, calibration_factor
     while serial_thread_running:
         try:
             readings = Serial.read()
             if readings != "" and readings != '\n' and readings!=None:
                 data += readings
+                if "CAL_FACTOR:" in data:
+                    lines = data.split('\n')
+                    new_data = []
+                    for line in lines:
+                        if line.startswith("CAL_FACTOR:"):
+                            try:
+                                new_factor = float(line.split(':')[1].strip())
+                                calibration_factor = new_factor
+                                save_calibration_config()
+                                SerialMonitorInsert(f"Saved new calibration factor: {calibration_factor}")
+                            except (ValueError, IndexError):
+                                SerialMonitorInsert("Error parsing calibration factor.")
+                        else:
+                            new_data.append(line)
+                    data = '\n'.join(new_data)
                 # Check if we have a complete reading
                 if '$' in data:
                     parts = data.split('$')
@@ -184,7 +225,9 @@ def SerialRefresh():
                     # Keep the last (incomplete) part
                     data = parts[-1]
                 else :
-                    SerialMonitorInsert(data)
+                    if data.strip():
+                        SerialMonitorInsert(data)
+                    data = "" # Clear buffer after printing
         except Exception as e:
             print(f"Error reading from serial: {e}")
             serial_thread_running = False # Stop thread on error
@@ -194,7 +237,7 @@ def SerialRefresh():
 # Button Functions
 #------------------------------------------------
 def connect_clicked():
-    global connected, serial_thread_running, Serial
+    global connected, serial_thread_running, Serial, calibration_factor
     refreshSerialPorts()
     if connected:
         print('stopped')
@@ -216,6 +259,8 @@ def connect_clicked():
             print('started')
             connect.itemconfig(connect_toggle_text, text='Connected')
             serial_read_start()
+            time.sleep(2) # wait for arduino to be ready
+            Send(f"sc{calibration_factor}")
             fix_autostart()
         except Exception as e:
             print(f'Error While Opening Serial Port: {e}')

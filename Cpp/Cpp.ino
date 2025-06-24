@@ -1,5 +1,6 @@
 #include <time.h>
 #include <string.h>
+#include <SD.h>
 #include "esc.h"
 #include "sensors.h"
 
@@ -12,12 +13,15 @@ bool Armed=0;
 char received; String command;
 int test_n=1; float PWM,T,Torque,Current,RPM,t0,t1,t2;
 void SendtoDataAquisition(float freq);
+#define CONFIG_FILE_PATH "../config_calibration.ini"
+
 
 void setup() {
   Serial.begin(9600);
   Motor1.connect();
   Motor1.speed(0);
   ThrustCell1.connect();
+  readCalibrationFactorFromConfig();
   //ThrustCell1.loadCell_Zero(); // this is an infinite loop while no sensor is attached
 
   CS1.connect();
@@ -65,7 +69,16 @@ void loop() {
       }else if(command.startsWith("cl1")){      // calibrate after placing known mass
         float known_mass=command.substring(3).toFloat();
         ThrustCell1.loadCellCalibrate(known_mass);
-      }else{
+      } else if (command.startsWith("sc")) {
+        float new_factor = command.substring(2).toFloat();
+        ThrustCell1.setCalibrationFactor(new_factor);
+        ThrustCell1.writeCalibrationFactorToConfig(new_factor);
+        Serial.print("CAL_FACTOR:");
+        Serial.println(new_factor);
+      } else if (command == "gc") {
+        Serial.print("CAL_FACTOR:");
+        Serial.println(ThrustCell1.getCalibrationFactor());
+      } else{
         // if not a special string,it must be motor speed->send pwm value to motor and get readings
         PWM=command.toFloat();
           if(PWM<=100.0&&Armed)

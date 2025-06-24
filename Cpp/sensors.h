@@ -1,4 +1,8 @@
 #include "HX711.h"
+#include <fstream>
+#include <string>
+
+#define CONFIG_FILE_PATH "config_calibration.ini"
 
 class loadCell {
 public:
@@ -33,6 +37,32 @@ public:
     calibration_factor = weight / (known_mass * 9.81);
     scale.set_scale(calibration_factor);
     Serial.println("Loadcell Calibration Done");
+  }
+  void readCalibrationFactorFromConfig() {
+    std::ifstream configFile(CONFIG_FILE_PATH);
+    if (configFile.is_open()) {
+      std::string line;
+      std::getline(configFile, line);
+      float factor = std::stof(line);
+      setCalibrationFactor(factor);
+      Serial.print("Calibration factor read from config: ");
+      Serial.println(factor);
+      configFile.close();
+    } else {
+      Serial.println("Failed to open config file!");
+    }
+  }
+
+  void writeCalibrationFactorToConfig(float factor) {
+    std::ofstream configFile(CONFIG_FILE_PATH);
+    if (configFile.is_open()) {
+      configFile << factor << std::endl;
+      Serial.print("Calibration factor written to config: ");
+      Serial.println(factor);
+      configFile.close();
+    } else {
+      Serial.println("Failed to open config file for writing!");
+    }
   }
 };
 class infraredSensor {
